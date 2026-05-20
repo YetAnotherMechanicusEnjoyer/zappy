@@ -1,0 +1,7 @@
+package local:zappy;
+
+world plugin-world {
+    record cube-state { time: f32 }
+    record render-command { x: f32, y: f32, rotation: f32 }
+    export update-cube: func(state: cube-state) -> render-command;
+}
