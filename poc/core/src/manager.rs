@@ -61,9 +61,27 @@ impl PluginManager {
     }
 
     pub fn handle_inputs(&mut self, event: KeyEvent) {
-        self.pipeline.retain_mut(|plugin| {
+        let mut to_remove = Vec::new();
+        let mut input_blocked = false;
+
+        for (index, plugin) in self.pipeline.iter_mut().enumerate() {
+            if input_blocked {
+                break;
+            }
+
             match plugin.bindings.call_handle_input(&mut plugin.store, &event) {
-                Ok(consumed) => !consumed,
+                Ok(consumed) => {
+                    if consumed {
+                        /*println!(
+                            "{}{} {} {}",
+                            "↳".bright_black(),
+                            "[INPUT]".bright_magenta().bold(),
+                            "blocked by".bright_black(),
+                            plugin.name.bright_black().underline()
+                        );*/
+                        input_blocked = true;
+                    }
+                }
                 Err(e) => {
                     eprintln!(
                         "{} {} {} {} {e}",
@@ -72,10 +90,14 @@ impl PluginManager {
                         plugin.name.italic(),
                         "panicked (Input):".bright_black()
                     );
-                    false
+                    to_remove.push(index);
                 }
             }
-        });
+        }
+
+        for index in to_remove.into_iter().rev() {
+            self.pipeline.remove(index);
+        }
     }
 
     pub fn update_and_render(&mut self, state: CubeState) {
