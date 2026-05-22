@@ -466,4 +466,18 @@ impl ModuleInstance {
             ModuleBindings::Cube(_) => Ok(()),
         }
     }
+
+    pub fn call_serialize(&mut self) -> Option<Vec<u8>> {
+        match &self.bindings {
+            ModuleBindings::Ui(ui) => ui.call_serialize(&mut self.store).ok(),
+            ModuleBindings::Cube(cube) => cube.call_serialize(&mut self.store).ok(),
+        }
+    }
+
+    pub fn call_deserialize(&mut self, state: &[u8]) -> Option<()> {
+        match &self.bindings {
+            ModuleBindings::Ui(ui) => ui.call_deserialize(&mut self.store, state).ok(),
+            ModuleBindings::Cube(cube) => cube.call_deserialize(&mut self.store, state).ok(),
+        }
+    }
 }

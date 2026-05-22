@@ -5,10 +5,34 @@ wit_bindgen::generate!({
 
 use std::sync::Mutex;
 
+use serde::{Deserialize, Serialize};
+
 use crate::local::zappy::{
     graphic::{Color, RectCmd, TextCmd},
     host_api::host_system_command,
 };
+
+#[derive(Serialize, Deserialize)]
+struct SerializableColor {
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SerializableSegment {
+    text: String,
+    color: SerializableColor,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ConsoleSerializableState {
+    input: String,
+    logs: Vec<Vec<SerializableSegment>>,
+    history: Vec<String>,
+}
+
 static CONSOLE: Mutex<ConsoleState> = Mutex::new(ConsoleState {
     opened: false,
     input: String::new(),
@@ -77,6 +101,62 @@ fn split_segments_by_lines(segments: Vec<TextSegment>) -> Vec<Vec<TextSegment>> 
 struct Module;
 
 impl Guest for Module {
+    fn serialize() -> Vec<u8> {
+        let state = CONSOLE.lock().unwrap();
+
+        let serializable_logs = state
+            .logs
+            .iter()
+            .map(|line| {
+                line.iter()
+                    .map(|seg| SerializableSegment {
+                        text: seg.text.clone(),
+                        color: SerializableColor {
+                            r: seg.color.r,
+                            g: seg.color.g,
+                            b: seg.color.b,
+                            a: seg.color.a,
+                        },
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect::<Vec<_>>();
+
+        let dump = ConsoleSerializableState {
+            input: state.input.clone(),
+            logs: serializable_logs,
+            history: state.history.clone(),
+        };
+
+        bincode::serialize(&dump).unwrap_or_default()
+    }
+
+    fn deserialize(state_bytes: Vec<u8>) {
+        if let Ok(dump) = bincode::deserialize::<ConsoleSerializableState>(&state_bytes) {
+            let mut state = CONSOLE.lock().unwrap();
+            state.input = dump.input;
+            state.history = dump.history;
+
+            state.logs = dump
+                .logs
+                .iter()
+                .map(|line| {
+                    line.iter()
+                        .map(|seg| TextSegment {
+                            text: seg.text.clone(),
+                            color: Color {
+                                r: seg.color.r,
+                                g: seg.color.g,
+                                b: seg.color.b,
+                                a: seg.color.a,
+                            },
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .collect::<Vec<_>>();
+        }
+    }
+
     fn handle_input(state: InputState) {
         let mut console = CONSOLE.lock().unwrap();
 

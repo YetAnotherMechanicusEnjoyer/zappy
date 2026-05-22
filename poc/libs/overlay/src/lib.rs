@@ -11,6 +11,18 @@ static OVERLAY_ACTIVE: Mutex<bool> = Mutex::new(false);
 struct Module;
 
 impl Guest for Module {
+    fn serialize() -> Vec<u8> {
+        let active = OVERLAY_ACTIVE.lock().unwrap();
+        bincode::serialize(&*active).unwrap_or_default()
+    }
+
+    fn deserialize(state_bytes: Vec<u8>) {
+        if let Ok(decoded) = bincode::deserialize::<bool>(&state_bytes) {
+            let mut active = OVERLAY_ACTIVE.lock().unwrap();
+            *active = decoded;
+        }
+    }
+
     fn handle_input(_state: InputState) {}
 
     fn run_command(cmd: String, args: Vec<String>) -> ResponseCommand {

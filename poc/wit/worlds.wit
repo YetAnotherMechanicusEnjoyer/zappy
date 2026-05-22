@@ -21,6 +21,9 @@ world ui-world {
 
   export get-commands: func() -> list<command-desc>;
   export accept-log: func(segments: list<text-segment>);
+
+  export serialize: func() -> list<u8>;
+  export deserialize: func(state: list<u8>);
 }
 
 world cube-world {
@@ -34,4 +37,7 @@ world cube-world {
   export get-commands: func() -> list<command-desc>;
   export run-command: func(cmd: string, args: list<string>) -> response-command;
   export update-module: func(time: f32, dt: f32, w: f32, h: f32) -> list<render-command>;
+
+  export serialize: func() -> list<u8>;
+  export deserialize: func(state: list<u8>);
 }
