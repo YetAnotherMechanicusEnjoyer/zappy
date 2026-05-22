@@ -120,7 +120,7 @@ async fn main() -> Result<(), anyhow::Error> {
                         "{} {}{}{}",
                         "[SYSTEM]".bright_blue().bold(),
                         "Reloading module '".bright_black(),
-                        name.italic().bright_black(),
+                        name.italic().bright_blue().black(),
                         "'".bright_black(),
                     );
                     manager.reload_module(&name);
@@ -196,6 +196,8 @@ async fn main() -> Result<(), anyhow::Error> {
 
         manager.handle_inputs(input_state);
 
+        manager.dispatch_events();
+
         manager.broadcast_logs();
 
         let dt = get_frame_time();
@@ -239,7 +241,7 @@ async fn main() -> Result<(), anyhow::Error> {
                         "{} {} {}{} {e}",
                         "[CRASH]".red().bold(),
                         "Shutting down".bright_black(),
-                        module.name.italic().bright_black(),
+                        module.name.italic().bright_blue().bold(),
                         ":".bright_black()
                     );
 

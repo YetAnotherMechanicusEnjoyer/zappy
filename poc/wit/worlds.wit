@@ -5,6 +5,8 @@ interface host-api {
 
   host-log: func(msg: string);
   host-system-command: func(cmd: string, args: list<string>) -> list<text-segment>;
+
+  emit-event: func(event-name: string, payload: string);
 }
 
 world ui-world {
@@ -24,6 +26,8 @@ world ui-world {
 
   export serialize: func() -> list<u8>;
   export deserialize: func(state: list<u8>);
+
+  export handle-event: func(event-name: string, payload: string);
 }
 
 world cube-world {
@@ -40,4 +44,6 @@ world cube-world {
 
   export serialize: func() -> list<u8>;
   export deserialize: func(state: list<u8>);
+
+  export handle-event: func(event-name: string, payload: string);
 }

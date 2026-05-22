@@ -23,6 +23,8 @@ impl Guest for Module {
         }
     }
 
+    fn handle_event(_event_name: String, _payload: String) {}
+
     fn handle_input(_state: InputState) {}
 
     fn run_command(cmd: String, args: Vec<String>) -> ResponseCommand {

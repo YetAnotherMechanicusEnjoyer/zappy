@@ -12,6 +12,7 @@ pub struct SharedEngineState {
     pub reload_queue: Vec<Option<String>>,
     pub logs_to_broadcast: Vec<Vec<TextSegment>>,
     pub command_queue: Vec<(String, Vec<String>)>,
+    pub event_queue: Vec<(String, String)>,
 }
 
 pub struct ModuleManager {
@@ -29,6 +30,7 @@ impl ModuleManager {
             reload_queue: Vec::new(),
             logs_to_broadcast: Vec::new(),
             command_queue: Vec::new(),
+            event_queue: Vec::new(),
         }));
         Self {
             engine,
@@ -140,7 +142,7 @@ impl ModuleManager {
                         "{} {} {} {} {e}",
                         "[CRASH]".red().bold(),
                         "Module".bright_black(),
-                        module.name.italic().bright_black(),
+                        module.name.italic().bright_blue().bold(),
                         "panicked (Input):".bright_black()
                     );
                     false
@@ -159,6 +161,31 @@ impl ModuleManager {
             for module in &mut self.pipeline {
                 module.call_accept_log(&log).ok();
             }
+        }
+    }
+
+    pub fn dispatch_events(&mut self) {
+        let mut events = Vec::new();
+        if let Ok(mut s) = self.shared.lock() {
+            events = std::mem::take(&mut s.event_queue);
+        }
+
+        for (event_name, payload) in events {
+            self.pipeline.retain_mut(|module| {
+                match module.call_handle_event(&event_name, &payload) {
+                    Ok(_) => true,
+                    Err(e) => {
+                        eprintln!(
+                            "{} {} {} {} {e}",
+                            "[CRASH]".red().bold(),
+                            "Module".bright_black(),
+                            module.name.italic().bright_blue().bold(),
+                            "failed to handle event:".bright_black(),
+                        );
+                        false
+                    }
+                }
+            });
         }
     }
 }

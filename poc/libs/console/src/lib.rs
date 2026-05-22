@@ -157,6 +157,36 @@ impl Guest for Module {
         }
     }
 
+    fn handle_event(event_name: String, payload: String) {
+        if event_name == "console_log" {
+            let mut console = CONSOLE.lock().unwrap();
+
+            let colored_msg = vec![
+                TextSegment {
+                    text: "[BUS] ".to_string(),
+                    color: Color {
+                        r: 148,
+                        g: 87,
+                        b: 235,
+                        a: 255,
+                    },
+                },
+                TextSegment {
+                    text: payload,
+                    color: Color {
+                        r: 100,
+                        g: 100,
+                        b: 100,
+                        a: 255,
+                    },
+                },
+            ];
+
+            let split_lines = split_segments_by_lines(colored_msg);
+            console.logs.extend(split_lines);
+        }
+    }
+
     fn handle_input(state: InputState) {
         let mut console = CONSOLE.lock().unwrap();
 

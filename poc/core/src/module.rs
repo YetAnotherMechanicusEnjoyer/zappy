@@ -183,6 +183,11 @@ impl ui_plugin::local::zappy::host_api::Host for HostState {
     fn host_system_command(&mut self, cmd: String, args: Vec<String>) -> Vec<TextSegment> {
         self.shared_host_system_command(cmd, args)
     }
+    fn emit_event(&mut self, event_name: String, payload: String) {
+        if let Ok(mut s) = self.shared.lock() {
+            s.event_queue.push((event_name, payload));
+        }
+    }
 }
 
 impl cube_plugin::local::zappy::host_api::Host for HostState {
@@ -191,6 +196,11 @@ impl cube_plugin::local::zappy::host_api::Host for HostState {
     }
     fn host_system_command(&mut self, cmd: String, args: Vec<String>) -> Vec<TextSegment> {
         self.shared_host_system_command(cmd, args)
+    }
+    fn emit_event(&mut self, event_name: String, payload: String) {
+        if let Ok(mut s) = self.shared.lock() {
+            s.event_queue.push((event_name, payload));
+        }
     }
 }
 
@@ -478,6 +488,13 @@ impl ModuleInstance {
         match &self.bindings {
             ModuleBindings::Ui(ui) => ui.call_deserialize(&mut self.store, state).ok(),
             ModuleBindings::Cube(cube) => cube.call_deserialize(&mut self.store, state).ok(),
+        }
+    }
+
+    pub fn call_handle_event(&mut self, name: &str, payload: &str) -> Result<(), wasmtime::Error> {
+        match &self.bindings {
+            ModuleBindings::Ui(ui) => ui.call_handle_event(&mut self.store, name, payload),
+            ModuleBindings::Cube(cube) => cube.call_handle_event(&mut self.store, name, payload),
         }
     }
 }
