@@ -141,7 +141,7 @@ impl Guest for Module {
         let data = CUBE_STATE.lock().unwrap();
         let center = data.offsets;
         let direction = if data.clockwise { 1.0 } else { -1.0 };
-        let base_speed = 2.0;
+        let base_speed = 25.0;
 
         let distance = 100.0;
         let speed_mult = 0.5;
@@ -226,8 +226,8 @@ impl Guest for Module {
                 color: neon_purple,
             }),
             RenderCommand::Rect(RectCmd {
-                x: data.offsets.0,
-                y: data.offsets.1,
+                x: data.offsets.0 - 2.5,
+                y: data.offsets.1 - 2.5,
                 w: 5.0,
                 h: 5.0,
                 color: Color {
