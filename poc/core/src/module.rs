@@ -261,7 +261,7 @@ impl HostState {
         if let Ok(mut s) = self.shared.lock() {
             let formatted = format!(
                 "{} {}",
-                "[module]".bright_magenta().bold(),
+                "[MODULE]".bright_magenta().bold(),
                 msg.bright_black()
             );
             println!("{formatted}");
@@ -281,9 +281,9 @@ impl HostState {
                     s.reload_queue.push(None);
                     parse_ansi_colors(
                         format!(
-                            "{}{}",
+                            "{} {}",
                             "[SYSTEM]".bright_blue(),
-                            ": Reloading all modules...".bright_black()
+                            "Reloading all modules...".bright_black()
                         )
                         .as_str(),
                     )
@@ -291,9 +291,9 @@ impl HostState {
                     s.reload_queue.push(Some(args[0].clone()));
                     parse_ansi_colors(
                         format!(
-                            "{}{}{}{}",
+                            "{} {}{}{}",
                             "[SYSTEM]".bright_blue(),
-                            ": Reloading '".bright_black(),
+                            "Reloading '".bright_black(),
                             args[0].cyan(),
                             "'...".bright_black()
                         )
