@@ -32,6 +32,13 @@ pub fn render_3d_command(cmd: &RenderCommand) {
             let size = vec3(c.size.x, c.size.y, c.size.z);
             draw_cube(pos, size, None, to_mq_color(&c.color));
         }
+        RenderCommand::InstancedCubes(ic) => {
+            for c in &ic.cubes {
+                let pos = vec3(c.position.x, c.position.y, c.position.z);
+                let size = vec3(c.size.x, c.size.y, c.size.z);
+                draw_cube(pos, size, None, to_mq_color(&c.color));
+            }
+        }
         RenderCommand::Grid3d(g) => {
             draw_grid(
                 g.slices,

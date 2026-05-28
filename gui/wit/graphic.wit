@@ -18,6 +18,8 @@ interface graphic {
   record camera-cmd { position: vec3, target: vec3, up: vec3, fovy: f32 }
   record line3d-cmd { start: vec3, end: vec3, color: color }
 
+  record instanced-cubes-cmd { cubes: list<cube-cmd> }
+
   variant render-command {
     rect(rect-cmd),
     text(text-cmd),
@@ -25,5 +27,6 @@ interface graphic {
     grid3d(grid3d-cmd),
     camera(camera-cmd),
     line3d(line3d-cmd),
+    instanced-cubes(instanced-cubes-cmd),
   }
 }

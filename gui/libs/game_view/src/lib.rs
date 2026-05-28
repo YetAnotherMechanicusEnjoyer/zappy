@@ -385,6 +385,8 @@ fn render_cubes(
     ray_dir: &Vec3,
     cmds: &mut Vec<RenderCommand>,
 ) {
+    let mut batch_cubes = Vec::with_capacity(cubes.len());
+
     for (i, cube) in cubes.iter().enumerate() {
         let mut draw_color = cube.color;
 
@@ -403,7 +405,8 @@ fn render_cubes(
                 color: COLOR_LASER,
             }));
         }
-        cmds.push(RenderCommand::Cube(CubeCmd {
+
+        batch_cubes.push(CubeCmd {
             position: cube.pos,
             size: Vec3 {
                 x: CUBE_SIZE,
@@ -411,8 +414,12 @@ fn render_cubes(
                 z: CUBE_SIZE,
             },
             color: draw_color,
-        }));
+        });
     }
+
+    cmds.push(RenderCommand::InstancedCubes(InstancedCubesCmd {
+        cubes: batch_cubes,
+    }));
 }
 
 fn send_overlay_metrics(camera: &CameraState) {
