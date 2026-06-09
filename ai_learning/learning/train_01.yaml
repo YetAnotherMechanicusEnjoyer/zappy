@@ -8,7 +8,7 @@ MAX_EPISODE_TICKS: 8000   # 3000 / freq=100 = 30 real seconds per episode
 # --- population ---
 N_TEAMS: 2
 POP_SIZE: 100             # 50 agents per team, good balance speed/diversity
-MAX_TEAM_SIZE: 20         # in order to limit fork
+MAX_TEAM_SIZE: 50         # in order to limit fork
 
 # --- network ---
 # state_dim computed at runtime, don't set here
