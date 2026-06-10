@@ -220,7 +220,7 @@ static CAMERA: Mutex<CameraState> = Mutex::new(CameraState {
 });
 
 static CUBES: Mutex<Vec<CubeEntity>> = Mutex::new(Vec::new());
-static INITIALIZED: Mutex<bool> = Mutex::new(false);
+static _INITIALIZED: Mutex<bool> = Mutex::new(false);
 static GRAB_STATE: Mutex<Option<(usize, usize, f32)>> = Mutex::new(None);
 
 static MAP_DIMENSIONS: (u32, u32) = (10000, 10000);
@@ -474,11 +474,10 @@ fn handle_primary_action(
             for (cube_idx, cube) in chunk.cubes.iter().enumerate() {
                 if let Some(t) =
                     intersect_sphere(camera_pos, rd, &cube.pos, SPHERE_INTERSECT_RADIUS)
+                    && t < closest_t
                 {
-                    if t < closest_t {
-                        closest_t = t;
-                        closest_idx = Some((c_idx, cube_idx));
-                    }
+                    closest_t = t;
+                    closest_idx = Some((c_idx, cube_idx));
                 }
             }
         }
@@ -503,6 +502,7 @@ fn apply_camera_physics(camera: &mut CameraState, dt: f32) {
     camera.position.z += camera.velocity.z * dt;
 }
 
+/*
 fn apply_cube_physics(
     cubes: &mut [CubeEntity],
     grab_state: Option<(usize, f32)>,
@@ -531,7 +531,7 @@ fn apply_cube_physics(
         cube.pos.z += cube.vel.z * dt;
     }
 }
-
+*/
 fn render_camera_and_grid(camera: &CameraState, ray_dir: &Vec3, cmds: &mut Vec<RenderCommand>) {
     let target = Vec3 {
         x: camera.position.x + ray_dir.x,
@@ -591,7 +591,7 @@ fn get_procedural_color(idx: u32) -> Color {
         _ => COLOR_YELLOW,
     }
 }
-
+/*
 fn init_chunks(chunks: &mut Vec<Chunk>) {
     let mut init = INITIALIZED.lock().unwrap();
     if *init {
@@ -651,7 +651,7 @@ fn init_chunks(chunks: &mut Vec<Chunk>) {
     }
     *init = true
 }
-
+*/
 fn render_chunks(
     chunks: &mut HashMap<usize, Chunk>,
     active_ids: &[usize],
