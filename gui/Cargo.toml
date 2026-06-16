@@ -1,3 +1,10 @@
 [workspace]
-members = ["core", "libs/console", "libs/crosshair", "libs/game_view", "libs/overlay"]
+members = [
+  "core",
+  "libs/console",
+  "libs/crosshair",
+  "libs/game_view",
+  "libs/obj_viewer",
+  "libs/overlay",
+]
 resolver = "3"

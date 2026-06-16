@@ -16,6 +16,7 @@ pub struct SharedEngineState {
     pub event_queue: Vec<(String, String)>,
     pub event_subscriptions: HashMap<String, Vec<String>>,
     pub kv_store: HashMap<String, Vec<u8>>,
+    pub models: Vec<String>,
 }
 
 impl SharedEngineState {
@@ -47,6 +48,7 @@ impl ModuleManager {
             event_queue: Vec::new(),
             event_subscriptions: HashMap::new(),
             kv_store: HashMap::new(),
+            models: Vec::new(),
         }));
         Self {
             engine,

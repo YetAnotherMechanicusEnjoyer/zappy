@@ -27,6 +27,19 @@ pub mod cube_plugin {
     });
 }
 
+pub mod model_viewer_plugin {
+    wasmtime::component::bindgen!({
+        path: "../wit",
+        world: "model-viewer-world",
+        with: {
+            "local:zappy/graphic": super::ui_plugin::local::zappy::graphic,
+            "local:zappy/input": super::ui_plugin::local::zappy::input,
+            "local:zappy/command": super::ui_plugin::local::zappy::command,
+            "local:zappy/system": super::ui_plugin::local::zappy::system,
+        }
+    });
+}
+
 pub use ui_plugin::local::zappy::{
     command::{CommandDesc, ResponseCommand},
     graphic::{Color, RenderCommand},
@@ -251,6 +264,43 @@ impl cube_plugin::local::zappy::host_api::Host for HostState {
     }
 }
 
+impl model_viewer_plugin::local::zappy::host_api::Host for HostState {
+    fn host_log(&mut self, msg: String) {
+        self.shared_host_log(msg);
+    }
+    fn host_system_command(&mut self, cmd: String, args: Vec<String>) -> Vec<TextSegment> {
+        self.shared_host_system_command(cmd, args)
+    }
+    fn emit_event(&mut self, event_name: String, payload: String) {
+        if let Ok(mut s) = self.shared.lock() {
+            s.event_queue.push((event_name, payload));
+        }
+    }
+    fn host_subscribe(&mut self, event_name: String) {
+        if let Ok(mut s) = self.shared.lock() {
+            let subs = s
+                .event_subscriptions
+                .entry(event_name)
+                .or_insert_with(Vec::new);
+            if !subs.contains(&self.module_name) {
+                subs.push(self.module_name.clone());
+            }
+        }
+    }
+    fn host_set_state(&mut self, key: String, value: Vec<u8>) {
+        if let Ok(mut s) = self.shared.lock() {
+            s.kv_store.insert(key, value);
+        }
+    }
+    fn host_get_state(&mut self, key: String) -> Option<Vec<u8>> {
+        if let Ok(s) = self.shared.lock() {
+            s.kv_store.get(&key).cloned()
+        } else {
+            None
+        }
+    }
+}
+
 impl ui_plugin::local::zappy::graphic::Host for HostState {}
 impl ui_plugin::local::zappy::input::Host for HostState {}
 impl ui_plugin::local::zappy::system::Host for HostState {}
@@ -403,6 +453,7 @@ impl HostState {
 pub enum ModuleBindings {
     Ui(ui_plugin::UiWorld),
     Cube(cube_plugin::CubeWorld),
+    ModelViewer(model_viewer_plugin::ModelViewerWorld),
 }
 
 pub struct ModuleInstance {
@@ -458,7 +509,7 @@ impl ModuleInstance {
             engine,
             HostState {
                 module_name: name.clone(),
-                shared,
+                shared: Arc::clone(&shared),
                 wasi_ctx,
                 table: ResourceTable::new(),
             },
@@ -467,14 +518,42 @@ impl ModuleInstance {
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
         cube_plugin::CubeWorld::add_to_linker::<HostState, HostState>(&mut linker, |s| s)?;
         linker.allow_shadowing(true);
-        match cube_plugin::CubeWorld::instantiate(&mut store, &component, &linker) {
-            Ok(bindings) => Ok(ModuleInstance {
+        if let Ok(bindings) = cube_plugin::CubeWorld::instantiate(&mut store, &component, &linker) {
+            return Ok(ModuleInstance {
                 name,
                 store,
                 bindings: ModuleBindings::Cube(bindings),
+            });
+        }
+
+        let wasi_ctx = WasiCtxBuilder::new()
+            .inherit_stdout()
+            .inherit_stderr()
+            .build();
+        let mut store = Store::new(
+            engine,
+            HostState {
+                module_name: name.clone(),
+                shared: Arc::clone(&shared),
+                wasi_ctx,
+                table: ResourceTable::new(),
+            },
+        );
+        let mut linker = Linker::new(engine);
+        wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
+        model_viewer_plugin::ModelViewerWorld::add_to_linker::<HostState, HostState>(
+            &mut linker,
+            |s| s,
+        )?;
+        linker.allow_shadowing(true);
+        match model_viewer_plugin::ModelViewerWorld::instantiate(&mut store, &component, &linker) {
+            Ok(bindings) => Ok(ModuleInstance {
+                name,
+                store,
+                bindings: ModuleBindings::ModelViewer(bindings),
             }),
             Err(e) => Err(anyhow::anyhow!(
-                "Component '{}' doesn't match UI nor Cube world. Last error: {}",
+                "Component '{}' doesn't match UI nor Cube nor ModelViewer worlds. Last error: {}",
                 name,
                 e
             )),
@@ -491,6 +570,9 @@ impl ModuleInstance {
         match &self.bindings {
             ModuleBindings::Ui(ui) => ui.call_update_module(&mut self.store, time, dt, w, h),
             ModuleBindings::Cube(cube) => cube.call_update_module(&mut self.store, time, dt, w, h),
+            ModuleBindings::ModelViewer(model) => {
+                model.call_update_module(&mut self.store, time, dt, w, h)
+            }
         }
     }
 
@@ -498,6 +580,7 @@ impl ModuleInstance {
         match &self.bindings {
             ModuleBindings::Ui(ui) => ui.call_handle_input(&mut self.store, state),
             ModuleBindings::Cube(cube) => cube.call_handle_input(&mut self.store, state),
+            ModuleBindings::ModelViewer(model) => model.call_handle_input(&mut self.store, state),
         }
     }
 
@@ -509,6 +592,9 @@ impl ModuleInstance {
         match &self.bindings {
             ModuleBindings::Ui(ui) => ui.call_run_command(&mut self.store, cmd, args),
             ModuleBindings::Cube(cube) => cube.call_run_command(&mut self.store, cmd, args),
+            ModuleBindings::ModelViewer(model) => {
+                model.call_run_command(&mut self.store, cmd, args)
+            }
         }
     }
 
@@ -516,6 +602,7 @@ impl ModuleInstance {
         match &self.bindings {
             ModuleBindings::Ui(ui) => ui.call_get_commands(&mut self.store),
             ModuleBindings::Cube(cube) => cube.call_get_commands(&mut self.store),
+            ModuleBindings::ModelViewer(model) => model.call_get_commands(&mut self.store),
         }
     }
 
@@ -523,6 +610,7 @@ impl ModuleInstance {
         match &self.bindings {
             ModuleBindings::Ui(ui) => ui.call_accept_log(&mut self.store, logs),
             ModuleBindings::Cube(_) => Ok(()),
+            ModuleBindings::ModelViewer(_) => Ok(()),
         }
     }
 
@@ -530,6 +618,7 @@ impl ModuleInstance {
         match &self.bindings {
             ModuleBindings::Ui(ui) => ui.call_serialize(&mut self.store).ok(),
             ModuleBindings::Cube(cube) => cube.call_serialize(&mut self.store).ok(),
+            ModuleBindings::ModelViewer(model) => model.call_serialize(&mut self.store).ok(),
         }
     }
 
@@ -537,6 +626,9 @@ impl ModuleInstance {
         match &self.bindings {
             ModuleBindings::Ui(ui) => ui.call_deserialize(&mut self.store, state).ok(),
             ModuleBindings::Cube(cube) => cube.call_deserialize(&mut self.store, state).ok(),
+            ModuleBindings::ModelViewer(model) => {
+                model.call_deserialize(&mut self.store, state).ok()
+            }
         }
     }
 
@@ -544,6 +636,9 @@ impl ModuleInstance {
         match &self.bindings {
             ModuleBindings::Ui(ui) => ui.call_handle_event(&mut self.store, name, payload),
             ModuleBindings::Cube(cube) => cube.call_handle_event(&mut self.store, name, payload),
+            ModuleBindings::ModelViewer(model) => {
+                model.call_handle_event(&mut self.store, name, payload)
+            }
         }
     }
 }

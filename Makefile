@@ -2,6 +2,7 @@ RUST_MODULES = 	\
 	console		\
 	crosshair	\
 	game_view	\
+	obj_viewer \
 	overlay
 
 MODULES = $(RUST_MODULES)

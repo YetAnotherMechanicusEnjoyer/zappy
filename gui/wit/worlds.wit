@@ -51,3 +51,21 @@ world cube-world {
 
   export handle-event: func(event-name: string, payload: string);
 }
+
+world model-viewer-world {
+  import host-api;
+
+  use input.{engine-context, input-action, delta, input-state};
+  use graphic.{render-command, text-align, mesh3d-cmd, vertex, vec2, vec3, color};
+  use command.{command-desc, response-command};
+
+  export handle-input: func(state: input-state);
+  export get-commands: func() -> list<command-desc>;
+  export run-command: func(cmd: string, args: list<string>) -> response-command;
+  export update-module: func(time: f32, dt: f32, w: f32, h: f32) -> list<render-command>;
+
+  export serialize: func() -> list<u8>;
+  export deserialize: func(state: list<u8>);
+
+  export handle-event: func(event-name: string, payload: string);
+}

@@ -2,6 +2,7 @@ package local:zappy;
 
 interface graphic {
   record color { r: u8, g: u8, b: u8, a: u8 }
+  record vec2 { x: f32, y: f32 }
   record vec3 { x: f32, y: f32, z: f32 }
 
   enum text-align {
@@ -20,6 +21,9 @@ interface graphic {
 
   record instanced-cubes-cmd { cubes: list<cube-cmd> }
 
+  record vertex { position: vec3, normal: vec3, uv: vec2, color: color }
+  record mesh3d-cmd { vertices: list<vertex>, indices: list<u16>, texture-id: u32 }
+
   variant render-command {
     rect(rect-cmd),
     text(text-cmd),
@@ -28,5 +32,6 @@ interface graphic {
     camera(camera-cmd),
     line3d(line3d-cmd),
     instanced-cubes(instanced-cubes-cmd),
+    mesh3d(mesh3d-cmd),
   }
 }
