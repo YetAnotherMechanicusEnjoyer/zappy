@@ -317,6 +317,13 @@ async fn main() -> Result<(), anyhow::Error> {
     manager.scan_and_load_all();
     let (reload_rx, _watcher) = watcher::setup()?;
 
+    if let Ok(mut s) = manager.shared.lock() {
+        s.event_subscriptions
+            .entry("server:line".to_string())
+            .or_insert_with(Vec::new)
+            .push("zappy_net".to_string());
+    }
+
     start_network_thread(host, port, manager.shared.clone());
 
     let mut tex_reg = TextureRegistry::new();

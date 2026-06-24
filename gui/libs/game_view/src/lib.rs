@@ -144,7 +144,7 @@ struct Chunk {
 static CHUNKS: LazyLock<Mutex<HashMap<usize, Chunk>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-fn get_or_create_chunk(chunks: &mut HashMap<usize, Chunk>, cx: usize, cz: usize, chunks_z: usize) {
+fn get_or_create_chunk(chunks: &mut HashMap<usize, Chunk>, cx: usize, cz: usize, chunks_z: usize, map_w: u32, map_h: u32) {
     let global_id = cx * chunks_z + cz;
 
     chunks.entry(global_id).or_insert_with(|| {
@@ -152,9 +152,9 @@ fn get_or_create_chunk(chunks: &mut HashMap<usize, Chunk>, cx: usize, cz: usize,
         let chunk_bounding_radius = (chunk_half_width * chunk_half_width * 2.0).sqrt() + 1.0;
 
         let chunk_world_x =
-            (cx * CHUNK_SIZE) as f32 - (MAP_DIMENSIONS.0 as f32 / 2.0) + chunk_half_width;
+            (cx * CHUNK_SIZE) as f32 - (map_w as f32 / 2.0) + chunk_half_width;
         let chunk_world_z =
-            (cz * CHUNK_SIZE) as f32 - (MAP_DIMENSIONS.1 as f32 / 2.0) + chunk_half_width;
+            (cz * CHUNK_SIZE) as f32 - (map_h as f32 / 2.0) + chunk_half_width;
 
         let mut chunk = Chunk {
             center: Vec3 {
@@ -168,26 +168,33 @@ fn get_or_create_chunk(chunks: &mut HashMap<usize, Chunk>, cx: usize, cz: usize,
 
         for x in 0..CHUNK_SIZE {
             for z in 0..CHUNK_SIZE {
-                let fx = (cx * CHUNK_SIZE + x) as f32 - MAP_DIMENSIONS.0 as f32 / 2.0 + 0.5;
-                let fz = (cz * CHUNK_SIZE + z) as f32 - MAP_DIMENSIONS.1 as f32 / 2.0 + 0.5;
+                let fx = (cx * CHUNK_SIZE + x) as f32 - map_w as f32 / 2.0 + 0.5;
+                let fz = (cz * CHUNK_SIZE + z) as f32 - map_h as f32 / 2.0 + 0.5;
 
-                for idx in 0..4 {
-                    let angle = (idx as f32) * GOLDEN_ANGLE;
-                    let pos = Vec3 {
-                        x: fx + (CUBE_OFFSET_RADIUS_XZ * angle.cos()),
-                        y: CUBE_OFFSET_Y,
-                        z: fz + (CUBE_OFFSET_RADIUS_XZ * angle.sin()),
-                    };
-                    chunk.cubes.push(CubeEntity {
-                        pos,
-                        target_pos: pos,
-                        vel: Vec3 {
-                            x: 0.0,
-                            y: 0.0,
-                            z: 0.0,
-                        },
-                        color: get_procedural_color(idx),
-                    });
+                let tile_x = cx * CHUNK_SIZE + x;
+                let tile_z = cz * CHUNK_SIZE + z;
+                let tile_idx = tile_z * map_w as usize + tile_x;
+                let resources = {
+                    let tiles = TILE_RESOURCES.lock().unwrap();
+                    tiles.get(tile_idx).copied().unwrap_or([0u32; 7])
+                };
+                let mut cube_idx = 0u32;
+                for (res_idx, &count) in resources.iter().enumerate() {
+                    for _ in 0..count.min(5) { // max 5 cubes par ressource pour éviter l'objet géant
+                        let angle = (cube_idx as f32) * GOLDEN_ANGLE;
+                        let pos = Vec3 {
+                            x: fx + (CUBE_OFFSET_RADIUS_XZ * angle.cos()),
+                            y: CUBE_OFFSET_Y,
+                            z: fz + (CUBE_OFFSET_RADIUS_XZ * angle.sin()),
+                        };
+                        chunk.cubes.push(CubeEntity {
+                            pos,
+                            target_pos: pos,
+                            vel: Vec3 { x: 0.0, y: 0.0, z: 0.0 },
+                            color: color_from_resource(res_idx),
+                        });
+                        cube_idx += 1;
+                    }
                 }
             }
         }
@@ -221,7 +228,20 @@ static CUBES: Mutex<Vec<CubeEntity>> = Mutex::new(Vec::new());
 static _INITIALIZED: Mutex<bool> = Mutex::new(false);
 static GRAB_STATE: Mutex<Option<(usize, usize, f32)>> = Mutex::new(None);
 
-static MAP_DIMENSIONS: (u32, u32) = (12, 12);
+static MAP_DIMENSIONS: Mutex<(u32, u32)> = Mutex::new((0, 0));
+static SUBSCRIBED: Mutex<bool> = Mutex::new(false);
+
+struct PlayerEntity {
+    id:        u32,
+    x:         u32,
+    y:         u32,
+    direction: u32,
+    level:     u32,
+}
+
+static PLAYERS: LazyLock<Mutex<Vec<PlayerEntity>>> = LazyLock::new(|| Mutex::new(Vec::new()));
+
+static TILE_RESOURCES: LazyLock<Mutex<Vec<[u32; 7]>>> = LazyLock::new(|| Mutex::new(Vec::new()));
 
 const CHUNK_SIZE: usize = 2;
 
@@ -502,7 +522,7 @@ fn apply_camera_physics(camera: &mut CameraState, dt: f32) {
     camera.position.z += camera.velocity.z * dt;
 }
 
-fn render_camera_and_grid(camera: &CameraState, ray_dir: &Vec3, cmds: &mut Vec<RenderCommand>) {
+fn render_camera_and_grid(camera: &CameraState, ray_dir: &Vec3, cmds: &mut Vec<RenderCommand>, map_w: u32, map_h: u32) {
     let target = Vec3 {
         x: camera.position.x + ray_dir.x,
         y: camera.position.y + ray_dir.y,
@@ -519,7 +539,7 @@ fn render_camera_and_grid(camera: &CameraState, ray_dir: &Vec3, cmds: &mut Vec<R
         fovy: CAMERA_FOVY,
     }));
     cmds.push(RenderCommand::Grid3d(Grid3dCmd {
-        slices: MAP_DIMENSIONS.0.max(MAP_DIMENSIONS.1) * 2,
+        slices: map_w.max(map_h) * 2,
         spacing: GRID_SPACING,
         color1: COLOR_GRID1,
         color2: COLOR_GRID2,
@@ -553,75 +573,18 @@ fn send_overlay_metrics(
     emit_event(METRIC_EVENT_NAME, &format!("Grab State:{grab_state:?}"));
 }
 
-fn get_procedural_color(idx: u32) -> Color {
-    match idx {
-        0 => COLOR_RED,
-        1 => COLOR_GREEN,
-        2 => COLOR_BLUE,
-        _ => COLOR_YELLOW,
+fn color_from_resource(resource_idx: usize) -> Color {
+    match resource_idx {
+        0 => Color { r: 210, g: 140, b:  50, a: 255 }, // food      → orange
+        1 => Color { r: 160, g: 160, b: 160, a: 255 }, // linemate  → gris
+        2 => Color { r: 210, g: 190, b:  50, a: 255 }, // deraumere → jaune
+        3 => Color { r:  80, g: 200, b: 100, a: 255 }, // sibur     → vert
+        4 => Color { r: 180, g:  80, b: 210, a: 255 }, // mendiane  → violet
+        5 => Color { r:  80, g: 180, b: 220, a: 255 }, // phiras    → bleu clair
+        _ => Color { r: 220, g:  50, b:  50, a: 255 }, // thystame  → rouge
     }
 }
-/*
-fn init_chunks(chunks: &mut Vec<Chunk>) {
-    let mut init = INITIALIZED.lock().unwrap();
-    if *init {
-        return;
-    }
 
-    let chunks_x = MAP_DIMENSIONS.0 as usize / CHUNK_SIZE;
-    let chunks_z = MAP_DIMENSIONS.1 as usize / CHUNK_SIZE;
-
-    let chunk_half_width = (CHUNK_SIZE as f32) * 0.5;
-    let chunk_bounding_radius = (chunk_half_width * chunk_half_width * 2.0).sqrt() + 1.0;
-
-    for cx in 0..chunks_x {
-        for cz in 0..chunks_z {
-            let chunk_world_x =
-                (cx * CHUNK_SIZE) as f32 - (MAP_DIMENSIONS.0 as f32 / 2.0) + chunk_half_width;
-            let chunk_world_z =
-                (cz * CHUNK_SIZE) as f32 - (MAP_DIMENSIONS.1 as f32 / 2.0) + chunk_half_width;
-
-            let mut chunk = Chunk {
-                center: Vec3 {
-                    x: chunk_world_x,
-                    y: CUBE_OFFSET_Y,
-                    z: chunk_world_z,
-                },
-                bounding_radius: chunk_bounding_radius,
-                cubes: Vec::with_capacity(CHUNK_SIZE * CHUNK_SIZE * 4),
-            };
-
-            for x in 0..CHUNK_SIZE {
-                for z in 0..CHUNK_SIZE {
-                    let fx = (cx * CHUNK_SIZE + x) as f32 - MAP_DIMENSIONS.0 as f32 / 2.0 + 0.5;
-                    let fz = (cz * CHUNK_SIZE + z) as f32 - MAP_DIMENSIONS.1 as f32 / 2.0 + 0.5;
-
-                    for idx in 0..4 {
-                        let angle = (idx as f32) * GOLDEN_ANGLE;
-                        let pos = Vec3 {
-                            x: fx + (CUBE_OFFSET_RADIUS_XZ * angle.cos()),
-                            y: CUBE_OFFSET_Y,
-                            z: fz + (CUBE_OFFSET_RADIUS_XZ * angle.sin()),
-                        };
-                        chunk.cubes.push(CubeEntity {
-                            pos,
-                            target_pos: pos,
-                            vel: Vec3 {
-                                x: 0.0,
-                                y: 0.0,
-                                z: 0.0,
-                            },
-                            color: get_procedural_color(idx),
-                        });
-                    }
-                }
-            }
-            chunks.push(chunk);
-        }
-    }
-    *init = true
-}
-*/
 fn render_chunks(
     chunks: &mut HashMap<usize, Chunk>,
     active_ids: &[usize],
@@ -631,6 +594,8 @@ fn render_chunks(
     frustum: &Frustum,
     cmds: &mut Vec<RenderCommand>,
     dt: f32,
+    map_w: u32,
+    map_h: u32,
 ) -> usize {
     let mut batch_cubes = Vec::new();
     let mut rendered_cubes = 0;
@@ -672,12 +637,12 @@ fn render_chunks(
                 && let Some(cube) = chunk.cubes.get(grab_cube_idx)
             {
                 let chunk_x_f =
-                    (cube.pos.x + (MAP_DIMENSIONS.0 as f32 / 2.0)) / (CHUNK_SIZE as f32);
+                    (cube.pos.x + (map_w as f32 / 2.0)) / (CHUNK_SIZE as f32);
                 let chunk_z_f =
-                    (cube.pos.z + (MAP_DIMENSIONS.1 as f32 / 2.0)) / (CHUNK_SIZE as f32);
+                    (cube.pos.z + (map_h as f32 / 2.0)) / (CHUNK_SIZE as f32);
 
-                let chunks_x = (MAP_DIMENSIONS.0 as usize) / CHUNK_SIZE;
-                let chunks_z = (MAP_DIMENSIONS.1 as usize) / CHUNK_SIZE;
+                let chunks_x = (map_w as usize) / CHUNK_SIZE;
+                let chunks_z = (map_h as usize) / CHUNK_SIZE;
 
                 if chunk_x_f >= 0.0 && chunk_z_f >= 0.0 {
                     let target_cx = (chunk_x_f as usize).min(chunks_x.saturating_sub(1));
@@ -891,19 +856,32 @@ impl Guest for Module {
     }
 
     fn update_module(_time: f32, dt: f32, w: f32, h: f32) -> Vec<RenderCommand> {
+        let mut sub = SUBSCRIBED.lock().unwrap();
+        if !*sub {
+            crate::local::zappy::host_api::host_subscribe("zappy:map_size");
+            crate::local::zappy::host_api::host_subscribe("zappy:tile_update");
+            crate::local::zappy::host_api::host_subscribe("zappy:player_new");
+            crate::local::zappy::host_api::host_subscribe("zappy:player_move");
+            crate::local::zappy::host_api::host_subscribe("zappy:player_death");
+            *sub = true;
+        }
+        let (map_w, map_h) = *MAP_DIMENSIONS.lock().unwrap();
+        if map_w == 0 || map_h == 0 {
+            return Vec::new();
+        }
         let mut cmds = Vec::new();
         let mut camera = CAMERA.lock().unwrap();
         let mut grab_state = GRAB_STATE.lock().unwrap();
         let mut chunks = CHUNKS.lock().unwrap();
         let dt = dt.min(MAX_DT);
 
-        let chunks_x = MAP_DIMENSIONS.0 as usize / CHUNK_SIZE.min(MAP_DIMENSIONS.0 as usize);
-        let chunks_z = MAP_DIMENSIONS.1 as usize / CHUNK_SIZE.min(MAP_DIMENSIONS.1 as usize);
+        let chunks_x = map_w as usize / CHUNK_SIZE.min(map_w as usize);
+        let chunks_z = map_h as usize / CHUNK_SIZE.min(map_h as usize);
 
-        let cam_cx = (((camera.position.x + (MAP_DIMENSIONS.0 as f32 / 2.0)) / CHUNK_SIZE as f32)
+        let cam_cx = (((camera.position.x + (map_w as f32 / 2.0)) / CHUNK_SIZE as f32)
             .floor() as i32)
             .clamp(0, chunks_x as i32 - 1);
-        let cam_cz = (((camera.position.z + (MAP_DIMENSIONS.1 as f32 / 2.0)) / CHUNK_SIZE as f32)
+        let cam_cz = (((camera.position.z + (map_h as f32 / 2.0)) / CHUNK_SIZE as f32)
             .floor() as i32)
             .clamp(0, chunks_z as i32 - 1);
 
@@ -917,7 +895,7 @@ impl Guest for Module {
                 if cx >= 0 && cx < chunks_x as i32 && cz >= 0 && cz < chunks_z as i32 {
                     let global_id = (cx as usize) * chunks_z + (cz as usize);
                     active_ids.push(global_id);
-                    get_or_create_chunk(&mut chunks, cx as usize, cz as usize, chunks_z);
+                    get_or_create_chunk(&mut chunks, cx as usize, cz as usize, chunks_z, map_w, map_h);
                 }
             }
         }
@@ -939,7 +917,7 @@ impl Guest for Module {
             RENDER_DISTANCE,
         );
 
-        render_camera_and_grid(&camera, &rd, &mut cmds);
+        render_camera_and_grid(&camera, &rd, &mut cmds, map_w, map_h);
 
         let rendered_cubes = render_chunks(
             &mut chunks,
@@ -950,9 +928,35 @@ impl Guest for Module {
             &frustum,
             &mut cmds,
             dt,
+            map_w,
+            map_h
         );
+        {
+            let players = PLAYERS.lock().unwrap();
+            let mut player_cubes = Vec::new();
+            for p in players.iter() {
+                let world_x = p.x as f32 - map_w as f32 / 2.0 + 0.5;
+                let world_z = p.y as f32 - map_h as f32 / 2.0 + 0.5;
+                let color = match p.direction {
+                    1 => Color { r: 255, g: 255, b: 100, a: 255 },
+                    2 => Color { r: 100, g: 255, b: 100, a: 255 },
+                    3 => Color { r: 100, g: 100, b: 255, a: 255 },
+                    4 => Color { r: 255, g: 100, b: 100, a: 255 },
+                    _ => Color { r: 255, g: 255, b: 255, a: 255 },
+                };
+                player_cubes.push(CubeCmd {
+                    position: Vec3 { x: world_x, y: 0.5, z: world_z },
+                    size: Vec3 { x: 0.4, y: 0.4, z: 0.4 },
+                    color,
+                });
+            }
+            if !player_cubes.is_empty() {
+                cmds.push(RenderCommand::InstancedCubes(InstancedCubesCmd {
+                    cubes: player_cubes,
+                }));
+            }
+        }
         send_overlay_metrics(rendered_cubes, &camera, *grab_state);
-
         cmds
     }
 
@@ -962,7 +966,86 @@ impl Guest for Module {
     fn run_command(_cmd: String, _args: Vec<String>) -> ResponseCommand {
         ResponseCommand::Unknown
     }
-    fn handle_event(_name: String, _payload: String) {}
+    fn handle_event(name: String, payload: String) {
+        match name.as_str() {
+            "zappy:map_size" => {
+                let parts: Vec<&str> = payload.split_whitespace().collect();
+                if parts.len() == 2 {
+                    let w: u32 = parts[0].parse().unwrap_or(0);
+                    let h: u32 = parts[1].parse().unwrap_or(0);
+                    if w > 0 && h > 0 {
+                        *MAP_DIMENSIONS.lock().unwrap() = (w, h);
+                        *TILE_RESOURCES.lock().unwrap() = vec![[0u32; 7]; (w * h) as usize];
+                        CHUNKS.lock().unwrap().clear();
+                        PLAYERS.lock().unwrap().clear();
+                    }
+                }
+            }
+            "zappy:tile_update" => {
+                let parts: Vec<&str> = payload.split_whitespace().collect();
+                if parts.len() == 9 {
+                    let x: u32 = parts[0].parse().unwrap_or(0);
+                    let y: u32 = parts[1].parse().unwrap_or(0);
+                    let (map_w, _) = *MAP_DIMENSIONS.lock().unwrap();
+                    if map_w > 0 {
+                        let idx = (y * map_w + x) as usize;
+                        let mut tiles = TILE_RESOURCES.lock().unwrap();
+                        if idx < tiles.len() {
+                            tiles[idx] = [
+                                parts[2].parse().unwrap_or(0),
+                                parts[3].parse().unwrap_or(0),
+                                parts[4].parse().unwrap_or(0),
+                                parts[5].parse().unwrap_or(0),
+                                parts[6].parse().unwrap_or(0),
+                                parts[7].parse().unwrap_or(0),
+                                parts[8].parse().unwrap_or(0),
+                            ];
+                            // Force la régénération du chunk correspondant
+                            let chunk_x = x as usize / CHUNK_SIZE;
+                            let chunk_z = y as usize / CHUNK_SIZE;
+                            let chunks_z = (map_w as usize).div_ceil(CHUNK_SIZE);
+                            let chunk_id = chunk_x * chunks_z + chunk_z;
+                            CHUNKS.lock().unwrap().remove(&chunk_id);
+                        }
+                    }
+                }
+            }
+            "zappy:player_new" => {
+                // payload = "id x y direction level"
+                let parts: Vec<&str> = payload.split_whitespace().collect();
+                if parts.len() == 5 {
+                    let id:  u32 = parts[0].parse().unwrap_or(0);
+                    let x:   u32 = parts[1].parse().unwrap_or(0);
+                    let y:   u32 = parts[2].parse().unwrap_or(0);
+                    let dir: u32 = parts[3].parse().unwrap_or(1);
+                    let lvl: u32 = parts[4].parse().unwrap_or(1);
+                    let mut players = PLAYERS.lock().unwrap();
+                    players.retain(|p| p.id != id);
+                    players.push(PlayerEntity { id, x, y, direction: dir, level: lvl });
+                }
+            }
+            "zappy:player_move" => {
+                // payload = "id x y direction"
+                let parts: Vec<&str> = payload.split_whitespace().collect();
+                if parts.len() == 4 {
+                    let id:  u32 = parts[0].parse().unwrap_or(0);
+                    let x:   u32 = parts[1].parse().unwrap_or(0);
+                    let y:   u32 = parts[2].parse().unwrap_or(0);
+                    let dir: u32 = parts[3].parse().unwrap_or(1);
+                    let mut players = PLAYERS.lock().unwrap();
+                    if let Some(p) = players.iter_mut().find(|p| p.id == id) {
+                        p.x = x; p.y = y; p.direction = dir;
+                    }
+                }
+            }
+            "zappy:player_death" => {
+                if let Ok(id) = payload.trim().parse::<u32>() {
+                    PLAYERS.lock().unwrap().retain(|p| p.id != id);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 export!(Module);

@@ -107,7 +107,11 @@ fn parse_line(line: &str, state: &mut GameState) {
                 tile.phiras    = parts[8].parse().unwrap_or(0);
                 tile.thystame  = parts[9].parse().unwrap_or(0);
             }
-            emit_event("zappy:tile_update", &format!("{} {}", x, y));
+            emit_event("zappy:tile_update", &format!(
+                "{} {} {} {} {} {} {} {} {}",
+                x, y,
+                parts[3], parts[4], parts[5], parts[6], parts[7], parts[8], parts[9]
+            ));
         }
 
         "tna" if parts.len() == 2 => {
