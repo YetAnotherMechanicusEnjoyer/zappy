@@ -1,10 +1,11 @@
 use crate::constants::{
-    CLIENTS_NB_FLAG, FREQUENCY_FLAG, HEIGHT_FLAG, HELP_FLAG, MIN_CLIENTS_NB, MIN_FREQUENCY,
-    MIN_HEIGHT, MIN_PORT, MIN_WIDTH, PORT_FLAG, TEAM_NAMES_FLAG, USAGE, WIDTH_FLAG,
+    DEFAULT_FREQUENCY, GRAPHIC_TEAM_NAME, MAX_CLIENTS_PER_TEAM, MAX_FREQUENCY, MAX_MAP_DIMENSION,
+    MIN_MAP_DIMENSION, MIN_SERVER_PORT,
 };
+use std::collections::HashSet;
 use std::env;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub port: u16,
     pub width: usize,
@@ -14,12 +15,18 @@ pub struct Config {
     pub freq: usize,
 }
 
-pub fn parse_args() -> Result<Config, String> {
-    let args: Vec<String> = env::args().collect();
+pub enum ParseOutcome {
+    Config(Config),
+    Help,
+}
 
-    if args.iter().any(|arg| arg == HELP_FLAG) {
-        println!("{}", USAGE);
-        std::process::exit(0);
+pub fn parse_args() -> Result<ParseOutcome, String> {
+    parse_arguments(env::args().skip(1).collect())
+}
+
+fn parse_arguments(arguments: Vec<String>) -> Result<ParseOutcome, String> {
+    if arguments.iter().any(|argument| argument == "--help") {
+        return Ok(ParseOutcome::Help);
     }
 
     let mut port = None;
@@ -27,104 +34,126 @@ pub fn parse_args() -> Result<Config, String> {
     let mut height = None;
     let mut teams = Vec::new();
     let mut clients_nb = None;
-    let mut freq = None;
+    let mut frequency = Some(DEFAULT_FREQUENCY);
+    let mut index = 0;
 
-    let mut args_iter = args.iter().skip(1).peekable();
-
-    while let Some(arg) = args_iter.next() {
-        match arg.as_str() {
-            PORT_FLAG => {
-                port = Some(parse_next_value::<u16>(&mut args_iter, PORT_FLAG)?);
+    while index < arguments.len() {
+        match arguments[index].as_str() {
+            "-p" => port = Some(parse_next::<u16>(&arguments, &mut index, "port")?),
+            "-x" => width = Some(parse_next::<usize>(&arguments, &mut index, "width")?),
+            "-y" => height = Some(parse_next::<usize>(&arguments, &mut index, "height")?),
+            "-c" => clients_nb = Some(parse_next::<usize>(&arguments, &mut index, "clientsNb")?),
+            "-f" => frequency = Some(parse_next::<usize>(&arguments, &mut index, "freq")?),
+            "-n" => {
+                index += 1;
+                while index < arguments.len() && !arguments[index].starts_with('-') {
+                    teams.push(arguments[index].clone());
+                    index += 1;
+                }
+                continue;
             }
-            WIDTH_FLAG => {
-                width = Some(parse_next_value::<usize>(&mut args_iter, WIDTH_FLAG)?);
-            }
-            HEIGHT_FLAG => {
-                height = Some(parse_next_value::<usize>(&mut args_iter, HEIGHT_FLAG)?);
-            }
-            CLIENTS_NB_FLAG => {
-                clients_nb = Some(parse_next_value::<usize>(&mut args_iter, CLIENTS_NB_FLAG)?);
-            }
-            FREQUENCY_FLAG => {
-                freq = Some(parse_next_value::<usize>(&mut args_iter, FREQUENCY_FLAG)?);
-            }
-            TEAM_NAMES_FLAG => {
-                parse_team_names(&mut args_iter, &mut teams);
-            }
-            _ => {
-                return Err(format!("Unknown argument: {}", arg));
-            }
+            unknown => return Err(format!("unknown option: {unknown}")),
         }
+        index += 1;
     }
 
     let config = Config {
-        port: port.ok_or("Missing -p port")?,
-        width: width.ok_or("Missing -x width")?,
-        height: height.ok_or("Missing -y height")?,
+        port: required(port, "port")?,
+        width: required(width, "width")?,
+        height: required(height, "height")?,
         teams,
-        clients_nb: clients_nb.ok_or("Missing -c clientsNb")?,
-        freq: freq.ok_or("Missing -f freq")?,
+        clients_nb: required(clients_nb, "clientsNb")?,
+        freq: required(frequency, "freq")?,
     };
-
     validate_config(&config)?;
-    Ok(config)
+    Ok(ParseOutcome::Config(config))
 }
 
-fn parse_next_value<'a, T>(
-    args_iter: &mut std::iter::Peekable<std::iter::Skip<std::slice::Iter<'a, String>>>,
-    flag: &str,
-) -> Result<T, String>
+fn parse_next<T>(arguments: &[String], index: &mut usize, name: &str) -> Result<T, String>
 where
     T: std::str::FromStr,
 {
-    let value = args_iter
-        .next()
-        .ok_or_else(|| format!("Missing value for {}", flag))?;
-
+    *index += 1;
+    let value = arguments
+        .get(*index)
+        .ok_or_else(|| format!("missing value for {name}"))?;
     value
         .parse::<T>()
-        .map_err(|_| format!("Invalid value for {}", flag))
+        .map_err(|_| format!("invalid value for {name}: {value}"))
 }
 
-fn parse_team_names<'a>(
-    args_iter: &mut std::iter::Peekable<std::iter::Skip<std::slice::Iter<'a, String>>>,
-    teams: &mut Vec<String>,
-) {
-    while let Some(next_arg) = args_iter.peek() {
-        if next_arg.starts_with('-') {
-            break;
-        }
-
-        if let Some(team_name) = args_iter.next() {
-            teams.push(team_name.clone());
-        }
-    }
+fn required<T>(value: Option<T>, name: &str) -> Result<T, String> {
+    value.ok_or_else(|| format!("missing required option: {name}"))
 }
 
 fn validate_config(config: &Config) -> Result<(), String> {
-    if config.port < MIN_PORT {
-        return Err("Port must be greater than 0".to_string());
+    if config.port < MIN_SERVER_PORT {
+        return Err(format!(
+            "port must be between {MIN_SERVER_PORT} and {}",
+            u16::MAX
+        ));
     }
-
-    if config.width < MIN_WIDTH {
-        return Err("Width must be greater than 0".to_string());
+    if !(MIN_MAP_DIMENSION..=MAX_MAP_DIMENSION).contains(&config.width)
+        || !(MIN_MAP_DIMENSION..=MAX_MAP_DIMENSION).contains(&config.height)
+    {
+        return Err(format!(
+            "map dimensions must be between {MIN_MAP_DIMENSION} and {MAX_MAP_DIMENSION}"
+        ));
     }
-
-    if config.height < MIN_HEIGHT {
-        return Err("Height must be greater than 0".to_string());
+    if !(1..=MAX_CLIENTS_PER_TEAM).contains(&config.clients_nb) {
+        return Err(format!(
+            "clientsNb must be between 1 and {MAX_CLIENTS_PER_TEAM}"
+        ));
     }
-
+    if !(1..=MAX_FREQUENCY).contains(&config.freq) {
+        return Err(format!("freq must be between 1 and {MAX_FREQUENCY}"));
+    }
     if config.teams.is_empty() {
-        return Err("Missing teams after -n".to_string());
+        return Err("at least one team name is required".to_string());
     }
-
-    if config.clients_nb < MIN_CLIENTS_NB {
-        return Err("clientsNb must be greater than 0".to_string());
+    if config.teams.iter().any(|team| team == GRAPHIC_TEAM_NAME) {
+        return Err("GRAPHIC is a reserved team name".to_string());
     }
-
-    if config.freq < MIN_FREQUENCY {
-        return Err("freq must be greater than 0".to_string());
+    if config.teams.iter().any(|team| team.is_empty()) {
+        return Err("team names cannot be empty".to_string());
     }
-
+    let unique = config.teams.iter().collect::<HashSet<_>>();
+    if unique.len() != config.teams.len() {
+        return Err("team names must be unique".to_string());
+    }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{validate_config, Config};
+    use crate::constants::{
+        DEFAULT_FREQUENCY, MAX_MAP_DIMENSION, MIN_MAP_DIMENSION, MIN_SERVER_PORT,
+    };
+
+    fn valid_config() -> Config {
+        Config {
+            port: MIN_SERVER_PORT,
+            width: MIN_MAP_DIMENSION,
+            height: MIN_MAP_DIMENSION,
+            teams: vec!["team1".to_string(), "team2".to_string()],
+            clients_nb: 2,
+            freq: DEFAULT_FREQUENCY,
+        }
+    }
+
+    #[test]
+    fn accepts_reference_limits() {
+        let mut config = valid_config();
+        config.width = MAX_MAP_DIMENSION;
+        config.height = MAX_MAP_DIMENSION;
+        assert!(validate_config(&config).is_ok());
+    }
+
+    #[test]
+    fn rejects_reserved_team() {
+        let mut config = valid_config();
+        config.teams = vec!["GRAPHIC".to_string()];
+        assert!(validate_config(&config).is_err());
+    }
 }
