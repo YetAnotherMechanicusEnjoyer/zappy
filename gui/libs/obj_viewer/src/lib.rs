@@ -30,6 +30,8 @@ const EVENT_LOAD: &str = "obj_viewer:load_full_scene";
 const EVENT_SET_SCALE: &str = "obj_viewer:set_scale";
 const EVENT_SET_POS: &str = "obj_viewer:set_position";
 const EVENT_SET_ROT: &str = "obj_viewer:set_rotation";
+const MAP_SIZE_PARTS: u32 = 2; 
+const MAP_SIZE_SCALE: f32 = 0.2;
 
 #[derive(Serialize, Deserialize, Clone)]
 struct TextureMapping {
@@ -82,6 +84,7 @@ fn init_module() {
     host_subscribe(EVENT_SET_SCALE);
     host_subscribe(EVENT_SET_POS);
     host_subscribe(EVENT_SET_ROT);
+    host_subscribe("zappy:map_size");
 
     host_log("obj_viewer loaded");
     *initialized = true;
@@ -373,6 +376,20 @@ impl Guest for Module {
                     };
 
                     s.payload.scale = scale;
+                }
+            },
+            "zappy:map_size" => {
+                let parts: Vec<&str> = payload.split_whitespace().collect();
+                if parts.len() == MAP_SIZE_PARTS {
+                    let w: f32 = parts[0].parse().unwrap_or(10.0);
+                    let h: f32 = parts[1].parse().unwrap_or(10.0);
+                    let new_scale = w.max(h) * MAP_SIZE_SCALE;
+                    let mut lock = STATE.lock().unwrap();
+                    if let Some(s) = lock.as_mut() {
+                        let max_y = s.mesh.verts.iter().map(|v| v.y).fold(f32::NEG_INFINITY, f32::max);
+                        s.payload.scale = new_scale;
+                        s.payload.pos_y = -(max_y * new_scale);
+                    }
                 }
             }
             _ => {}
