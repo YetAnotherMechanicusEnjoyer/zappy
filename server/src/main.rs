@@ -11,6 +11,7 @@ use crate::constants::{ERROR_EXIT, USAGE};
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
+    dotenvy::dotenv().ok();
     match server::runtime::run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {

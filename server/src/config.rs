@@ -4,6 +4,7 @@ use crate::constants::{
 };
 use std::collections::HashSet;
 use std::env;
+use std::str::FromStr;
 
 #[derive(Debug, Clone)]
 pub struct Config {
@@ -20,8 +21,57 @@ pub enum ParseOutcome {
     Help,
 }
 
+trait EnvFallback: Sized {
+    fn has_value(&self) -> bool;
+
+    fn parse_from_env(s: &str) -> Option<Self>;
+}
+
+impl<T: FromStr> EnvFallback for Option<T> {
+    fn has_value(&self) -> bool {
+        self.is_some()
+    }
+
+    fn parse_from_env(s: &str) -> Option<Self> {
+        s.parse::<T>().ok().map(Some)
+    }
+}
+
+impl<T: FromStr> EnvFallback for Vec<T> {
+    fn has_value(&self) -> bool {
+        !self.is_empty()
+    }
+
+    fn parse_from_env(s: &str) -> Option<Self> {
+        if s.trim().is_empty() {
+            return Some(Vec::new());
+        }
+
+        let items: Result<Vec<T>, _> = s.split(',').map(|val| val.trim().parse::<T>()).collect();
+
+        items.ok()
+    }
+}
+
 pub fn parse_args() -> Result<ParseOutcome, String> {
     parse_arguments(env::args().skip(1).collect())
+}
+
+fn default_env_variable<T>(var: T, env_var: &str) -> T
+where
+    T: EnvFallback,
+{
+    if var.has_value() {
+        return var;
+    }
+
+    if let Ok(s) = std::env::var(env_var) {
+        if let Some(parsed) = T::parse_from_env(&s) {
+            return parsed;
+        }
+    }
+
+    var
 }
 
 fn parse_arguments(arguments: Vec<String>) -> Result<ParseOutcome, String> {
@@ -56,6 +106,13 @@ fn parse_arguments(arguments: Vec<String>) -> Result<ParseOutcome, String> {
         }
         index += 1;
     }
+
+    port = default_env_variable(port, "ZAPPY_PORT");
+    width = default_env_variable(width, "ZAPPY_WIDTH");
+    height = default_env_variable(height, "ZAPPY_HEIGHT");
+    teams = default_env_variable(teams, "ZAPPY_TEAMS");
+    clients_nb = default_env_variable(clients_nb, "ZAPPY_NB_CLIENTS");
+    frequency = default_env_variable(frequency, "ZAPPY_FREQUENCY");
 
     let config = Config {
         port: required(port, "port")?,
